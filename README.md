@@ -2,10 +2,10 @@ Super Bowl: Youtube commercials analysis
 ==============================
 
 ## Shiny App
-https://jointhubs.shinyapps.io/superbowl-commercials
+
 
 ## Backend
-check repository [dgrtwo/data-screencasts](https://github.com/dgrtwo/data-screencasts)
+check repository [krassowski/complex-upset](https://github.com/krassowski/complex-upset)
 
   └── README.md          <- The top-level README for developers using this project.
 

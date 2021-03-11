@@ -17,44 +17,66 @@ knitr::opts_chunk$set(echo = FALSE,
                       message = FALSE)
 
 library(tidyverse)
-library(tidytuesdayR)
-library(scales)
-library(tidytext)
+library(ggplot2movies)
+library(ComplexUpset)
 library(plotly)
+library(DT)
+library(scales)
 
 source("functions.r")
 
 # tt <- tt_load("2021-03-02")
 # saveRDS(tt, "tt.rds")
-tt <- readRDS("tt.rds")
 
-youtube <- tt$youtube %>%
-  dplyr::select(-favorite_count) %>%
-  mutate(brand = fct_recode(brand, Hyundai = "Hynudai"))
+movies_raw = as.data.frame(ggplot2movies::movies)
+head(movies_raw, 3)
 
-gathered_categories <- youtube %>%
-  gather(category, value, funny:use_sex) %>%
-  mutate(category = str_to_title(str_replace_all(category, "_", " ")))
+genres <- colnames(movies_raw)[18:24]
 
-coefficients <- gathered_categories %>%
-  group_by(category) %>%
-  summarize(model = list(glm(value ~ year, family = "binomial"))) %>%
-  mutate(td = map(model, broom::tidy)) %>%
-  unnest(td) %>%
-  filter(term != "(Intercept)") %>%
-  arrange(desc(estimate))
+movies <- movies_raw
+movies[genres] = movies[genres] == 1
+movies[movies$mpaa == '', 'mpaa'] = NA
+movies = na.omit(movies)
 
-by_brand_category <- gathered_categories %>%
-  group_by(brand, category) %>%
-  summarize(pct = mean(value)) %>%
-  ungroup()
+movies_subset = head(movies, 300)
+genres_subset = c('Comedy', 'Drama', 'Action')
 
-pl <- youtube %>%
-  filter(!is.na(view_count)) %>%
-  mutate(rating = round(like_count / (like_count + dislike_count) * 100, 2)) %>% 
-  dplyr::select(brand, year, title, description, 
-         view_count, rating, like_count,
-         dislike_count) 
+movies_subset$good_rating = movies_subset$rating > mean(movies_subset$rating)
+arranged = arrange_venn(movies_subset, sets=genres_subset)
+
+set_size = function(w, h, factor=1.5) {
+    s = 1 * factor
+    options(
+        repr.plot.width=w * s,
+        repr.plot.height=h * s,
+        repr.plot.res=100 / factor,
+        jupyter.plot_mimetypes='image/png',
+        jupyter.plot_scale=1
+    )
+}
+best_movies <- movies_raw %>% 
+  filter(!is.na(budget)) %>% 
+  filter(votes >= quantile(votes, .5)) %>% 
+  filter(rating >= quantile(rating, .5)) %>% 
+  pivot_longer(Action:Short) %>% 
+  select(title, name, value, rating, year, budget) %>% 
+  mutate(genre = ifelse(value == 1, name, "")) %>% 
+  group_by(title, rating, year, budget) %>% 
+  summarise(genre = trimws(paste(genre, collapse = " ")),
+            .groups = "drop") %>% 
+  mutate(genre = str_replace_all(genre, "  ", " "))
+
+good_movies <- movies %>% 
+  filter(!is.na(budget)) %>% 
+  filter(votes >= quantile(votes, .5)) %>% 
+  filter(rating >= quantile(rating, .5)) 
+
+
+movies_subset = good_movies
+genres_subset = c('Comedy', 'Drama', 'Action')
+
+movies_subset$good_rating = movies_subset$rating > mean(movies_subset$rating)
+arranged = arrange_venn(movies_subset, sets=genres_subset)
 ```
 
 <link href="https://fonts.googleapis.com/css?family=Audiowide" rel="stylesheet">
@@ -79,13 +101,7 @@ Social Media
 Links
 </h4>
 <h5>
-[Tidy Tuesday](https://www.tidytuesday.com/)
-
-[Data](https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-03-02/readme.md)
-
-[Youtube Analysis](https://www.youtube.com/watch?v=EHqFDXa-sH4) 
-
-[Github - dgrtwo/data-screencasts](https://github.com/dgrtwo/data-screencasts)
+[Github - krassowski/complex-upset](https://github.com/krassowski/complex-upset)
 </h5>
 
 
@@ -94,230 +110,155 @@ Column 1
 
 <center>
 
-![](jointhub-Page-16.png)
+![](intro.png)
 
 </center>
 
 Data{data-icon="fa-chess-board"}
 =====================================     
 
-Column 2{data-width=166}
--------------------------------------
+### Best movies
 
-### Analyzed commercials
-```{r predsf}
-renderPlot({
-  youtube %>%
-  count(brand, sort = TRUE) %>%
-  head(20) %>%
-  mutate(brand = fct_reorder(brand, n)) %>%
-  ggplot(aes(n, brand)) +
-  geom_col(fill = "#329E99") +
-  labs(title = "",
-       x = "",
-       y = "") +
-  jtTheme()
-})
+```{r ratings}
+DT::renderDataTable({
+best_movies %>% 
+    mutate(genre = factor(genre)) %>% 
+    #mutate(Budget = dollar(Budget, prefix = "")) %>% 
+    datatable(rownames = FALSE,
+              filter = "top",
+              options = list( 
+                initComplete = JS("function(settings, json) {",
+                                  "$(this.api().table().header()).css({'color': '#D9D9D9'});",
+                                  "}"))) %>% 
+   formatStyle(colnames(best_movies),
+               target = "row",
+               color = "#D9D9D9",
+               background = "#14113D")  %>% 
+    formatStyle("budget",
+  background = styleColorBar(
+    range(best_movies$budget), '#329E99'),
+  backgroundSize = '98% 88%',
+  backgroundRepeat = 'no-repeat',
+  backgroundPosition = 'center')
+},
+extensions = "Buttons", 
+options = list(
+  scrollY = '500px',
+  scrollX = TRUE,
+  dom = 'Bfltip',
+  filter = "top",
+  buttons = c('csv', "excel"),
+  paging = TRUE,
+  fixedColumns = TRUE,
+  lengthMenu = list(c(10, 25, 50, 100, 500,-1),
+                    c(10, 25, 50, 100, 500, "All")),
+  initComplete = JS("function(settings, json) {",
+                    "$(this.api().table().header()).css({'color': '#D9D9D9'});",
+                            "}"))
+)
 ```
 
-### Generated actions
-```{r data intro}
-renderPlot({
-  youtube %>%
-  gather(metric, value, contains("_count")) %>%
-  ggplot(aes(value)) +
-  geom_histogram(binwidth = .5,
-                 fill = "#329E99" ) +
-  scale_x_log10(labels = comma) +
-  labs(x = "# of views") +
-  facet_wrap(~ metric)+
-  labs(title = "",
-       x = "",
-       y = "")+
-  jtTheme() +
-    theme(axis.text.x = element_blank(),
-          axis.text.y = element_blank())
-})
-```
+Analysis{data-icon="fa-dna"}
+===================================== 
 
 Column 2{.tabset}
 -------------------------------------
 
-### Total Youtube Views
-```{r tyv}
-renderPlotly({
-  youtube %>%
-  filter(!is.na(view_count)) %>%
-  group_by(year) %>%
-  summarize(n = n(),
-            total_views = sum(view_count),
-            rating = round(mean(like_count / (like_count + dislike_count) * 100, na.rm = TRUE),2)) %>%
-  ggplot(aes(year, total_views)) +
-  geom_line(color = "#D9D9D9", size = 1.3, alpha = .7) +
-  geom_point(aes(size = n,
-                 color = rating)) +
-  scale_y_continuous(labels = comma,
-                     trans = "log10") +
-  jtTheme() +
-  labs(y = "",
-       x = "",
-       size = "Number of commercials [size]",
-       color = "Likes [%]",
-       title = "")
-})
-```
-
-### Most viewed commercials ranking
+### Category combinations
 ```{r first}
 renderPlotly({
-  pl %>%
-  filter(view_count >= quantile(view_count, .8)) %>%
-  ggplot(aes(rating, view_count)) +
-  geom_point(aes(color = brand,
+set_size(8, 5.5)
+ arranged %>% 
+   ggplot() + 
+   jtTheme() +
+   coord_fixed() +
+   geom_venn_region(movies_subset, 
+                    sets = genres_subset, 
+                    alpha = 0.1)  + 
+   geom_venn_circle(movies_subset, 
+                    sets = genres_subset, 
+                    size = 1.5) + 
+   geom_venn_label_set(
+      movies_subset,
+      sets = genres_subset,
+      aes(label = region),
+      outwards_adjust = 2.6
+    ) +
+   geom_venn_label_region(
+      movies_subset,
+      sets = genres_subset,
+      aes(label = size),
+      position = position_nudge(y = 0.15)
+    ) +
+    scale_color_venn_mix(movies, 
+                         sets = genres_subset, 
+                         guide = FALSE) + 
+   scale_fill_venn_mix(movies, 
+                       sets = genres_subset, 
+                       guide = FALSE)+
+  geom_point(aes(x = x, 
+                 y = y, 
+                 color = region,
                  label = title,
-                 label2 = description,
                  label3 = year,
-                 label4 = like_count,
-                 label5 = dislike_count),
-             size = 3,
-             alpha = .7) +
-  scale_y_continuous(labels = comma,
-                     trans = "log10")  +
-  jtTheme() +
-  theme(legend.position = "none") +
-  labs(x = "",
-       y = "",
-       title = "")
+                 label4 = mpaa,
+                 alpha = rating), 
+             size = 1.7) +
+   
+   expand_limits(x = c(-5, 5)) +
+   labs(x = "",
+        y = "") +
+   theme(axis.text.x = element_blank(),
+         axis.text.y = element_blank())
+  
 })
 ```
 
-### Number of commercials by brands
-```{r results}
+
+### Number of movies by combined categories
+```{r tyv}
 renderPlot({
-  youtube %>%
-  ggplot(aes(year, fill = brand)) +
-  geom_bar() +
-  facet_wrap(~ brand) +
-  labs(title = "",
-       x = "",
-       y = "")+
-  jtTheme()  +
-  theme(legend.position = "none") 
-})
-```
 
-
-Commercial Features {data-icon="fa-barcode"}
-=====================================     
-
-Column 2{data-width=300}
--------------------------------------
-
-### Measured features
-```{r data table}
-renderPlot({
-  gathered_categories %>%
-  filter(!is.na(view_count)) %>%
-  group_by(category, value) %>%
-  summarize(n = n(),
-            total_views = sum(view_count)) %>%
-  ggplot(aes(total_views, category, fill = value)) +
-  geom_col(position = "dodge") +
-  scale_x_continuous(labels = comma) +
+upset(movies, genres,
+    set_sizes=FALSE,
+    base_annotations = list(
+        'Intersection size'=(
+            intersection_size(text_mapping=aes(label=""))+
+              geom_col(color = "#329E99") +
+              ylim(c(0, 700)) + 
+              jtTheme() +
+          labs(y = "",
+               x = "") +
+          theme(axis.text.x = element_blank(),
+                axis.title.x = element_blank()) 
+        )),
+    stripes=c('#14113D', '#14113D'),
+       matrix=(
+        intersection_matrix(
+            geom=geom_point(
+                shape='square',
+                size=3.5
+            ),
+            outline_color=list(
+                active='#329E99',
+                inactive='grey70'
+            )
+        )
+        + scale_color_manual(
+            values=c('TRUE'='#329E99', 'FALSE'='grey'),
+            labels=c('TRUE'='yes', 'FALSE'='no'),
+            breaks=c('TRUE', 'FALSE'),
+            name='Is category member?'
+        )
+        + scale_y_discrete(
+            position='right'
+        )
+    )
+) +
   jtTheme() +
-  labs(y = "",
-       x = "", 
-       fill = "Color",
-       title = "Total views")
-})
-```
-
-Column 2{data-width=300}
--------------------------------------
-
-### Commercial features in time
-```{r plot total}
-renderPlot({
-  gathered_categories %>%
-  group_by(category,
-           year = 2 * (year %/% 2)) %>%
-  summarize(pct = mean(value),
-            n = n()) %>%
-  inner_join(coefficients, by = "category") %>%
-  filter(p.value <= .01) %>%
-  ggplot(aes(year, pct, color = category)) +
-  geom_line(size = 2,
-            alpha = .8) +
-  scale_y_continuous(labels = percent) +
-  facet_wrap(~ category) +
-  jtTheme() +
-  theme(legend.position = "none") +
-  labs(y = "",
-       x = "", 
-       title = "")
-})
-```
-
-
-Brands Features {data-icon="fa-dna"}
-=====================================     
-
-Column 2{.tabset}
--------------------------------------
-
-### Commercial features usage by brands
-```{r diag2}
-renderPlotly({
-  by_brand_category %>%
-  mutate(brand = reorder_within(brand, pct, category)) %>%
-  ggplot(aes(pct, brand)) +
-  geom_col(fill = "#329E99") +
-  scale_x_continuous(labels = percent) +
-  scale_y_reordered() +
-  facet_wrap(~ category, scales = "free_y") +
-  jtTheme() +
-  theme(legend.position = "none",
-        axis.text.y = element_text(size = 10)) +
-  labs(y = "",
-       x = "% of brand's ads have this quality", 
-       title = "Commercial qualities")
-})
-```
-
-### Brands commercial fingerprints
-```{r byb}
-renderPlot({
-  by_brand_category %>%
-  mutate(category = reorder_within(category, pct, brand)) %>%
-  ggplot(aes(pct, category)) +
-  geom_col(fill = "#329E99") +
-  scale_x_continuous(labels = percent) +
-  scale_y_reordered() +
-  facet_wrap(~ brand, scales = "free_y") +
-  jtTheme() +
-  theme(axis.text.x = element_blank()) +
-  labs(y = "",
-       x = "% of brand's ads have this quality") +
-  labs(title = "What is each brand's 'fingerprint' in terms of the type of ads it produces?")
-})
-```
-
-
-### Brands & Commercial features heatmap
-```{r ff}
-renderPlot({
-  by_brand_category %>%
-  ggplot(aes(category, brand, fill = pct)) +
-  geom_tile() +
-  scale_fill_gradient2(low = "black", 
-                       high = "#329E99", 
-                       midpoint = .5) +
-  #coord_flip() +
-  jtTheme() +
-  theme(axis.text.x = element_text(size = 9)) +
-  labs(x = "",
-       y = "",
-       fill = "Correlation")
+    labs(x = "",
+         y = "") +
+    theme(axis.text.x = element_blank())
 })
 ```
 
